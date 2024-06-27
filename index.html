@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect to MetaMask & Generate API Key and Signature</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .btn-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #output, #response-output, #signature-output {
+            margin-top: 20px;
+            word-wrap: break-word;
+        }
+
+        .result {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        .shortened-text {
+            max-width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #message-form {
+            margin-top: 20px;
+        }
+
+        #message-form input {
+            padding: 10px;
+            width: calc(100% - 22px);
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Connect to MetaMask & Generate API Key and Signature</h1>
+        <div class="btn-container">
+            <button id="connect-btn">Connect Wallet</button>
+            <button id="generate-btn" style="display:none;">Generate API Key</button>
+        </div>
+        <div id="output">Account not connected</div>
+        <div id="response-output"></div>
+        <div id="api-key" class="result" onclick="copyText('api-key')">API key will be here</div>
+        <form id="message-form" style="display:none;">
+            <input type="text" id="message" placeholder="Enter message to sign">
+            <button type="button" id="sign-btn">Generate Signature</button>
+        </form>
+        <div id="signature-output"></div>
+        <div id="signature-hash" class="result" onclick="copyText('signature-hash')">Signature hash will be here</div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.7.0/web3.min.js"></script>
+    <script>
+        let userAccount = '';
+
+        document.getElementById('connect-btn').addEventListener('click', async function() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    userAccount = accounts[0];
+                    document.getElementById('output').textContent = `Account: ${userAccount}`;
+                    document.getElementById('generate-btn').style.display = 'block';
+                    document.getElementById('message-form').style.display = 'block';
+                } catch (error) {
+                    console.error('Error connecting to MetaMask:', error);
+                    document.getElementById('output').textContent = 'Failed to connect to MetaMask.';
+                }
+            } else {
+                alert('MetaMask is not installed. Please install it to use this feature.');
+            }
+        });
+
+        document.getElementById('generate-btn').addEventListener('click', async function() {
+            if (userAccount === '') {
+                alert('Please connect your MetaMask wallet first.');
+                return;
+            }
+
+            try {
+                const nonce = Date.now().toString();
+                const msgStr = `{"nonce":"${nonce}"}`;
+                const web3 = new Web3(window.ethereum);
+                const sig = await web3.eth.personal.sign(msgStr, userAccount);
+
+                const CAX_URL = "https://cax.piccadilly.autonity.org/api";
+                const headers = {
+                    "Content-Type": "application/json",
+                    "API-Sig": sig
+                };
+
+                const response = await fetch(`${CAX_URL}/apikeys`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: msgStr
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.apikey) {
+                    document.getElementById('response-output').textContent = `API key generated successfully`;
+                    const apiKeyElement = document.getElementById('api-key');
+                    apiKeyElement.textContent = data.apikey;
+                    apiKeyElement.classList.add('shortened-text');
+                    apiKeyElement.style.display = 'block';
+                } else {
+                    document.getElementById('response-output').textContent = 'Account not registered on CAX';
+                }
+            } catch (error) {
+                console.error('Error generating API key:', error);
+                document.getElementById('response-output').textContent = 'An error occurred while generating the API key.';
+            }
+        });
+
+        document.getElementById('sign-btn').addEventListener('click', async function() {
+            const message = document.getElementById('message').value;
+            if (message === '') {
+                alert('Please enter a message to sign.');
+                return;
+            }
+
+            if (userAccount === '') {
+                alert('Please connect your MetaMask wallet first.');
+                return;
+            }
+
+            try {
+                const web3 = new Web3(window.ethereum);
+                const signature = await web3.eth.personal.sign(message, userAccount);
+                document.getElementById('signature-output').textContent = `Signature generated successfully`;
+                const signatureElement = document.getElementById('signature-hash');
+                signatureElement.textContent = signature;
+                signatureElement.classList.add('shortened-text');
+                signatureElement.style.display = 'block';
+            } catch (error) {
+                console.error('Error generating signature:', error);
+                document.getElementById('signature-output').textContent = 'An error occurred while generating the signature.';
+            }
+        });
+
+        function copyText(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                alert(`${elementId === 'api-key' ? 'API key' : 'Signature hash'} copied to clipboard`);
+            }, (err) => {
+                console.error('Could not copy text: ', err);
+            });
+        }
+    </script>
+</body>
+</html>
